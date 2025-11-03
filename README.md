@@ -11,6 +11,8 @@ A simple bash tool to enumerate all SANs associated with a certificate
 
 ![Example Output](EXAMPLE%20OUTPUT2.png)
 
+### Example of Exported CSV
+
 ![Example Output](EXAMPLE%20OUTPUT.png)
 
 ## Features
