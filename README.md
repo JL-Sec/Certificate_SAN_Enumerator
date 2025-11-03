@@ -1,4 +1,7 @@
 # Certificate SAN Enumerator
+
+Designed for external network pentests to help enumerate additional hostnames from Certificate Subject Alternative Name (SAN)s.
+
 A simple bash tool to enumerate all SANs associated with a certificate. Can be ran against an input file containing multiple hosts.
 
 # certificat_SAN_enum.sh
