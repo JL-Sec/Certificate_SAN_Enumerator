@@ -19,17 +19,46 @@ DO_RESOLVE=0
 
 usage() {
   cat <<EOF
-Usage: $0 [options] [host:port[,host2:port2...]]
+
+cert_enum.sh - TLS certificate enumerator (nmap + openssl)
+Generates: main CSV (certs) and optional exploded SAN CSV when --resolve is used.
+
+Usage:
+  ./cert_enum.sh [options] [targets]
+  ./cert_enum.sh -i targets.txt -o results.csv --resolve
+
+Targets:
+  - single inline:  10.10.10.10:5061
+  - multiple inline: 10.10.10.10:5061,10.10.20.20:443
+  - host only: example.com          (defaults to port 443)
+  - with explicit SNI: 1.2.3.4:443:host.example.com
+
 Options:
-  -i FILE    Input file containing host:port (one per line or comma-separated)
-  -o FILE    Output CSV file (default: ${OUTFILE})
-  -t SECS    Timeout seconds for openssl s_client (default: ${TIMEOUT_SECS})
-  --resolve  Resolve SAN hostnames to IPs and save an exploded SAN CSV
-  -h         Show this help
-Input formats supported:
-  host
-  host:port
-  host:port:sni    # optional SNI if host is IP but you want a hostname for SNI
+  -i FILE        Input file (one target per line or comma-separated)
+  -o FILE        Output CSV for certs (default: ${OUTFILE})
+  -t SECS        Timeout for openssl s_client (default: ${TIMEOUT_SECS})
+  --resolve      Resolve SAN hostnames to A/AAAA and create <OUTFILE>_sans.csv
+  -h             Show this help and examples
+
+Examples:
+  # Basic single target (cert enumeration only)
+  ./cert_enum.sh 10.10.10.10:5061 -o certs.csv
+
+  # Multiple inline targets, default port if omitted
+  ./cert_enum.sh 10.10.10.10:5061,example.com:443 -o results.csv
+
+  # From file (comments with '#' and blank lines allowed)
+  ./cert_enum.sh -i targets.txt -o results.csv
+
+  # With SNI (target is IP but you want specific SNI)
+  ./cert_enum.sh 1.2.3.4:443:host.example.com --resolve
+
+  # Full workflow: enumerate certs + resolve SANs -> exploded SAN CSV produced
+  ./cert_enum.sh -i targets.txt -o myresults.csv --resolve
+
+Note:
+  - nmap --script ssl-cert is active testing (performs TLS handshake). Only run on in-scope targets.
+  - The script prints per-target summaries while running and writes CSVs to disk.
 EOF
   exit 1
 }
