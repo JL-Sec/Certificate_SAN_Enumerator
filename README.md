@@ -1,7 +1,7 @@
-# Certificate_SAN_Enumerator
+# Certificate SAN Enumerator
 A simple bash tool to enumerate all SANs associated with a certificate
 
-# cert_enum.sh
+# certificat_SAN_enum.sh
 
 `cert_enum.sh` — a simple certificate enumeration tool that uses `nmap` and `openssl` to discover certificate CNs, SANs, and fingerprints, and optionally resolves SAN hostnames into A/AAAA records for follow-on scanning.
 
