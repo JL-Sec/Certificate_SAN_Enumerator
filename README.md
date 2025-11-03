@@ -3,7 +3,7 @@ A simple bash tool to enumerate all SANs associated with a certificate
 
 # certificat_SAN_enum.sh
 
-`cert_enum.sh` — a simple certificate enumeration tool that uses `nmap` and `openssl` to discover certificate CNs, SANs, and fingerprints, and optionally resolves SAN hostnames into A/AAAA records for follow-on scanning.
+`certificate_SAN_enum.sh` — a simple certificate enumeration tool that uses `nmap` and `openssl` to discover certificate CNs, SANs, and fingerprints, and optionally resolves SAN hostnames into A/AAAA records for follow-on scanning.
 
 > **Purpose**: quickly enumerate TLS certificates for external targets, extract SANs (including those only revealed by `nmap --script ssl-cert`), and creates CSV output.
 
@@ -35,19 +35,19 @@ Just download or clone this repo and make the script executable:
 ```bash
 git clone <your-repo-url>
 cd cert-enum
-chmod +x cert_enum.sh
+chmod +x certificate_SAN_enum.sh
 ```
 
 ## Examples
 
 # Single target (defaults to port 443)
-./cert_enum.sh example.com -o certs.csv
+./certificate_SAN_enum.sh example.com -o certs.csv
 
 # Single IP:port
-./cert_enum.sh 10.10.10.10:5061 -o certs.csv
+./certificate_SAN_enum.sh 10.10.10.10:5061 -o certs.csv
 
 # From file (supports comments '#')
-./cert_enum.sh -i targets.txt -o results.csv
+./certificate_SAN_enum.sh -i targets.txt -o results.csv
 
 # With SAN DNS resolution (creates results_sans.csv)
-./cert_enum.sh -i targets.txt -o results.csv --resolve
+./certificate_SAN_enum.sh -i targets.txt -o results.csv --resolve
