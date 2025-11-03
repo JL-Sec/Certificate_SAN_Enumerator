@@ -1,5 +1,5 @@
 # Certificate SAN Enumerator
-A simple bash tool to enumerate all SANs associated with a certificate. Can be ran against an input list containing multiple hosts.
+A simple bash tool to enumerate all SANs associated with a certificate. Can be ran against an input file containing multiple hosts.
 
 # certificat_SAN_enum.sh
 
