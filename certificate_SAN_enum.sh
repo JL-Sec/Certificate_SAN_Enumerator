@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# TLS certificate enumerator (nmap + openssl) with optional SAN resolution and exploded SAN CSV
+# cert_enum.sh
+# Usage:
+#   ./cert_enum.sh -i targets.txt -o results.csv --resolve
+#   ./cert_enum.sh 10.10.10.10:443,example.com:8443 -o results.csv --resolve
+#
 # Requirements: openssl, nmap, sed, awk, grep, timeout (coreutils)
+# (tested on Debian/Ubuntu/Kali)
 
 set -euo pipefail
 
@@ -14,46 +19,17 @@ DO_RESOLVE=0
 
 usage() {
   cat <<EOF
-
-certificate_SAN_enum.sh - TLS certificate enumerator (nmap + openssl)
-Generates: main CSV (certs) and optional exploded SAN CSV when --resolve is used.
-
-Usage:
-  ./certificate_SAN_enum.sh [options] [targets]
-  ./certificate_SAN_enum.sh -i targets.txt -o results.csv --resolve
-
-Targets:
-  - single inline:  10.10.10.10:5061
-  - multiple inline: 10.10.10.10:5061,10.10.20.20:443
-  - host only: example.com          (defaults to port 443)
-  - with explicit SNI: 1.2.3.4:443:host.example.com
-
+Usage: $0 [options] [host:port[,host2:port2...]]
 Options:
-  -i FILE        Input file (one target per line or comma-separated)
-  -o FILE        Output CSV for certs (default: ${OUTFILE})
-  -t SECS        Timeout for openssl s_client (default: ${TIMEOUT_SECS})
-  --resolve      Resolve SAN hostnames to A/AAAA and create <OUTFILE>_sans.csv
-  -h             Show this help and examples
-
-Examples:
-  # Basic single target (cert enumeration only)
-  ./certificate_SAN_enum.sh 10.10.10.10:5061 -o certs.csv
-
-  # Multiple inline targets, default port if omitted
-  ./certificate_SAN_enum.sh 10.10.10.10:5061,example.com:443 -o results.csv
-
-  # From file (comments with '#' and blank lines allowed)
-  ./certificate_SAN_enum.sh -i targets.txt -o results.csv
-
-  # With SNI (target is IP but you want specific SNI)
-  ./certificate_SAN_enum.sh 1.2.3.4:443:host.example.com --resolve
-
-  # Full workflow: enumerate certs + resolve SANs -> exploded SAN CSV produced
-  ./certificate_SAN_enum.sh -i targets.txt -o myresults.csv --resolve
-
-Note:
-  - nmap --script ssl-cert is active testing (performs TLS handshake). Only run on in-scope targets.
-  - The script prints per-target summaries while running and writes CSVs to disk.
+  -i FILE    Input file containing host:port (one per line or comma-separated)
+  -o FILE    Output CSV file (default: ${OUTFILE})
+  -t SECS    Timeout seconds for openssl s_client (default: ${TIMEOUT_SECS})
+  --resolve  Resolve SAN hostnames to IPs and save an exploded SAN CSV
+  -h         Show this help
+Input formats supported:
+  host
+  host:port
+  host:port:sni    # optional SNI if host is IP but you want a hostname for SNI
 EOF
   exit 1
 }
@@ -64,86 +40,75 @@ while [[ $# -gt 0 ]]; do
   key="$1"
   case $key in
     -i)
-      INPUT_FILE="$2"; shift; shift
+      INPUT_FILE="$2"
+      shift; shift
       ;;
     -o)
-      OUTFILE="$2"; shift; shift
+      OUTFILE="$2"
+      shift; shift
       ;;
     -t)
-      TIMEOUT_SECS="$2"; shift; shift
+      TIMEOUT_SECS="$2"
+      shift; shift
       ;;
     --resolve)
-      DO_RESOLVE=1; shift
+      DO_RESOLVE=1
+      shift
       ;;
     -h)
       usage
       ;;
-    --) shift; break
-      ;;
     *)
-      if [ -z "${INPUT_LIST}" ]; then INPUT_LIST="$1"; else INPUT_LIST="$INPUT_LIST,$1"; fi
+      INPUT_LIST="$INPUT_LIST,$1"
       shift
       ;;
   esac
 done
 
-# If input file provided, read and append
+# If input file provided, read it
 if [ ! -z "${INPUT_FILE:-}" ] && [ -f "${INPUT_FILE:-}" ]; then
   filecontent=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$INPUT_FILE" | tr '\n' ',' | sed 's/,$//')
-  if [ -z "${INPUT_LIST}" ]; then
-    INPUT_LIST="$filecontent"
-  else
-    INPUT_LIST="${INPUT_LIST},${filecontent}"
-  fi
+  INPUT_LIST="${INPUT_LIST},${filecontent}"
 fi
 
-# Normalize and validate input
-INPUT_LIST=$(echo "$INPUT_LIST" | sed 's/^,//; s/,$//')
+# Trim commas
+INPUT_LIST=$(echo "$INPUT_LIST" | sed 's/^,//;s/,$//')
+
 if [ -z "${INPUT_LIST}" ]; then
-  echo "[!] No targets specified."
+  echo "No targets specified."
   usage
 fi
 
 IFS=',' read -r -a TARGETS <<< "$INPUT_LIST"
 
-# Prepare CSV headers
+# CSV header for main output
 printf '%s\n' "host,port,sni_used,cn,sans,sha1_fingerprint,issuer,nmap_output" > "$OUTFILE"
+
+# If resolve enabled, prepare SAN output CSV
 if [ $DO_RESOLVE -eq 1 ]; then
   SAN_OUTFILE="${OUTFILE%.csv}_sans.csv"
-  printf '%s\n' "parent_host,parent_port,cn,san_name,a_ips,aaaa_ips,status" > "$SAN_OUTFILE"
+  printf "parent_host,parent_port,cn,san_name,a_ips,aaaa_ips,status\n" > "$SAN_OUTFILE"
 fi
 
-# csv quote helper
+# Helper: quote CSV field (escape double-quotes)
 csvq() {
-  local s="$1"; s="${s//\"/\"\"}"; printf '"%s"' "$s"
+  local s="$1"
+  s="${s//\"/\"\"}"
+  printf '"%s"' "$s"
 }
 
-# DNS resolver preference
-have_dig=0; have_nslookup=0
-command -v dig >/dev/null 2>&1 && have_dig=1
-command -v nslookup >/dev/null 2>&1 && have_nslookup=1
-
-resolve_dns_pair() {
+resolve_dns() {
   local name="$1"
-  local A="" AAAA=""
-  if [ $have_dig -eq 1 ]; then
-    A=$(dig +short A "$name" 2>/dev/null | tr '\n' ' ' | xargs || true)
-    AAAA=$(dig +short AAAA "$name" 2>/dev/null | tr '\n' ' ' | xargs || true)
-  elif [ $have_nslookup -eq 1 ]; then
-    A=$(nslookup -type=A "$name" 2>/dev/null | awk '/^Address: /{print $2}' | tr '\n' ' ' | xargs || true)
-    AAAA=$(nslookup -type=AAAA "$name" 2>/dev/null | awk '/^Address: /{print $2}' | tr '\n' ' ' | xargs || true)
-  else
-    echo "NXDOMAIN"
-    return
-  fi
-  if [ -z "$A" ] && [ -z "$AAAA" ]; then
+  local a_ips=$(dig +short A "$name" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+  local aaaa_ips=$(dig +short AAAA "$name" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+
+  if [ -z "$a_ips" ] && [ -z "$aaaa_ips" ]; then
     echo "NXDOMAIN"
   else
-    echo "${A}||${AAAA}"
+    echo "$a_ips,$aaaa_ips"
   fi
 }
 
-# Main loop
 for raw in "${TARGETS[@]}"; do
   target=$(echo "$raw" | tr -d '[:space:]')
   [ -z "$target" ] && continue
@@ -153,90 +118,70 @@ for raw in "${TARGETS[@]}"; do
   port="${part2:-443}"
   sni="${part3:-$host}"
 
-  echo
-  echo "[*] Target: ${host}:${port}  (SNI=${sni})"
+  echo "[*] Processing ${host}:${port}  (SNI=${sni})"
+
   nmapfile="${NMAP_OUTDIR}/${host//:/_}_${port}.nmap.txt"
   xmlout="${NMAP_OUTDIR}/${host//:/_}_${port}.nmap.xml"
 
-  echo "[>] Running nmap --script ssl-cert ..."
+  echo "[*] Running nmap ssl-cert (this may take a few seconds)..."
   nmap -p "${port}" --script ssl-cert -oN "${nmapfile}" -oX "${xmlout}" -Pn "${host}" >/dev/null 2>&1 || true
 
   cert_pem="${TMPDIR}/${host//:/_}_${port}_${sni}.pem"
-  timeout "${TIMEOUT_SECS}"s openssl s_client -connect "${host}:${port}" -servername "${sni}" -showcerts </dev/null 2>/dev/null || true \
-    | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > "${cert_pem}" || true
+  {
+    timeout "${TIMEOUT_SECS}"s openssl s_client -connect "${host}:${port}" -servername "${sni}" -showcerts </dev/null 2>/dev/null || true
+  } | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > "${cert_pem}" || true
 
   if [ ! -s "${cert_pem}" ]; then
-    echo "[!] openssl returned no cert with SNI=${sni}. Trying without SNI..."
-    timeout "${TIMEOUT_SECS}"s openssl s_client -connect "${host}:${port}" -showcerts </dev/null 2>/dev/null || true \
-      | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > "${cert_pem}" || true
+    echo "[!] openssl returned no cert using SNI=${sni}, trying without SNI..."
+    {
+      timeout "${TIMEOUT_SECS}"s openssl s_client -connect "${host}:${port}" -showcerts </dev/null 2>/dev/null || true
+    } | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > "${cert_pem}" || true
   fi
 
   CN=""; SANS=""; SHA1=""; ISSUER=""
   if [ -s "${cert_pem}" ]; then
-    awk '/-----BEGIN CERTIFICATE-----/{flag=1} flag{print} /-----END CERTIFICATE-----/{exit}' "${cert_pem}" > "${cert_pem}.leaf"
-    certleaf="${cert_pem}.leaf"
+    awk '/-----BEGIN CERTIFICATE-----/{flag=1} flag{print} /-----END CERTIFICATE-----/{print; exit}' "${cert_pem}" > "${cert_pem}.leaf.pem"
+    certleaf="${cert_pem}.leaf.pem"
 
     subj=$(openssl x509 -in "${certleaf}" -noout -subject 2>/dev/null || true)
     CN=$(echo "$subj" | sed -n 's/^.*CN=//p' | sed 's#/.*##' | sed 's/,$//' | awk '{print $1}' | sed 's/,$//')
     if [ -z "$CN" ]; then
-      CN=$(openssl x509 -in "${certleaf}" -noout -subject -nameopt RFC2253 2>/dev/null | sed -n 's/^subject=.*CN=\([^,]*\).*$/\1/p' || true)
+      CN=$(openssl x509 -in "${certleaf}" -noout -subject -nameopt RFC2253 2>/dev/null | sed -n 's/^subject=.*CN=\([^,]*\).*$/\1/p')
     fi
 
-    SANS=$(openssl x509 -in "${certleaf}" -noout -text 2>/dev/null | awk '/Subject Alternative Name/{getline; print}' || true)
+    SANS=$(openssl x509 -in "${certleaf}" -noout -text 2>/dev/null | awk '/Subject Alternative Name/{getline; print}')
     SANS=$(echo "${SANS}" | sed -e 's/DNS://g' -e 's/ *, */,/g' -e 's/^[ \t]*//;s/[ \t]*$//' | tr -d '\r')
 
-    SHA1=$(openssl x509 -in "${certleaf}" -noout -fingerprint -sha1 2>/dev/null | sed 's/^.*=//; s/://g' || true)
-    ISSUER=$(openssl x509 -in "${certleaf}" -noout -issuer 2>/dev/null | sed 's/^issuer= //; s/^[ \t]*//; s/[ \t]*$//' || true)
-  else
-    echo "[!] No certificate fetched for ${host}:${port}"
+    SHA1=$(openssl x509 -in "${certleaf}" -noout -fingerprint -sha1 2>/dev/null | sed 's/^.*=//; s/://g')
+    ISSUER=$(openssl x509 -in "${certleaf}" -noout -issuer 2>/dev/null | sed 's/^issuer= //')
   fi
-
-  if [ -z "$SANS" ] && [ -f "$nmapfile" ]; then
-    SANS=$(grep -i "Subject Alternative Name" -A1 "$nmapfile" 2>/dev/null | tail -n1 | sed -e 's/DNS://g' -e 's/ *, */,/g' -e 's/^[ \t]*//;s/[ \t]*$//' || true)
-  fi
-
-  echo "[+] CN: ${CN:-<none>}"
-  echo "[+] SANs: ${SANS:-<none>}"
-  echo "[+] Issuer: ${ISSUER:-<none>}"
-  echo "[+] SHA1: ${SHA1:-<none>}"
-  echo "[+] nmap output: ${nmapfile}"
 
   printf '%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$(csvq "$host")" "$(csvq "$port")" "$(csvq "$sni")" \
     "$(csvq "$CN")" "$(csvq "$SANS")" "$(csvq "$SHA1")" "$(csvq "$ISSUER")" "$(csvq "$nmapfile")" \
-    >> "$OUTFILE"
+  >> "$OUTFILE"
 
   if [ $DO_RESOLVE -eq 1 ] && [ -n "$SANS" ]; then
     IFS=',' read -r -a san_list <<< "$SANS"
     for san_name in "${san_list[@]}"; do
-      san_name=$(echo "$san_name" | xargs)
-      [ -z "$san_name" ] && continue
-
-      resolve_result=$(resolve_dns_pair "$san_name")
-      if [ "$resolve_result" = "NXDOMAIN" ]; then
-        a_ips=""; aaaa_ips=""; status="NXDOMAIN"
-      else
-        a_ips="${resolve_result%%||*}"
-        aaaa_ips="${resolve_result##*||}"
-        status="OK"
+      resolve_result=$(resolve_dns "$san_name")
+      IFS=',' read -r a_ips aaaa_ips <<< "$resolve_result"
+      status="OK"
+      if [ "$resolve_result" == "NXDOMAIN" ]; then
+        status="NXDOMAIN"
       fi
-
       printf '%s,%s,%s,%s,%s,%s,%s\n' \
         "$(csvq "$host")" "$(csvq "$port")" "$(csvq "$CN")" \
         "$(csvq "$san_name")" "$(csvq "$a_ips")" "$(csvq "$aaaa_ips")" "$(csvq "$status")" \
-        >> "$SAN_OUTFILE"
-
-      echo "    -> ${san_name} => ${status} ${a_ips:+A:${a_ips}} ${aaaa_ips:+AAAA:${aaaa_ips}}"
+      >> "$SAN_OUTFILE"
     done
   fi
 
 done
 
-echo
-echo "[*] Done."
-echo "[*] Main CSV: $OUTFILE"
+echo "[*] Done. Main CSV written to: $OUTFILE"
 if [ $DO_RESOLVE -eq 1 ]; then
-  echo "[*] Exploded SAN CSV: $SAN_OUTFILE"
+  echo "[*] SAN CSV written to: ${SAN_OUTFILE}"
 fi
-echo "[*] Nmap outputs saved to: $NMAP_OUTDIR"
-echo "[*] Temp files are in: $TMPDIR (delete when you no longer need them)"
+echo "[*] Nmap outputs saved in: $NMAP_OUTDIR"
+echo "[*] Temporary files in: $TMPDIR (cleanup when done)"
