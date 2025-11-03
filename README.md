@@ -46,15 +46,8 @@ chmod +x cert_enum.sh
 # Single IP:port
 ./cert_enum.sh 10.10.10.10:5061 -o certs.csv
 
-# Multiple inline targets
-./cert_enum.sh 10.10.10.10:5061,example.com:443 -o results.csv
-
 # From file (supports comments '#')
 ./cert_enum.sh -i targets.txt -o results.csv
 
 # With SAN DNS resolution (creates results_sans.csv)
 ./cert_enum.sh -i targets.txt -o results.csv --resolve
-
-# With explicit SNI when target is an IP
-./cert_enum.sh 1.2.3.4:443:host.example.com --resolve
-
