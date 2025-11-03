@@ -8,7 +8,7 @@ A simple bash tool to enumerate all SANs associated with a certificate
 ---
 
 # Example Output
-![image](EXAMPLE OUTPUT.png)
+![image]("EXAMPLE OUTPUT.png")
 
 ## Features
 
