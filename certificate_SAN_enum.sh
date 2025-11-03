@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# cert_enum.sh
 # TLS certificate enumerator (nmap + openssl) with optional SAN resolution and exploded SAN CSV
-#
 # Requirements: openssl, nmap, sed, awk, grep, timeout (coreutils)
-# Optional but recommended: dig (for faster/resilient DNS resolution). nslookup as fallback.
-# Tested on Debian/Ubuntu/Kali.
 
 set -euo pipefail
 
@@ -19,12 +15,12 @@ DO_RESOLVE=0
 usage() {
   cat <<EOF
 
-cert_enum.sh - TLS certificate enumerator (nmap + openssl)
+certificate_SAN_enum.sh - TLS certificate enumerator (nmap + openssl)
 Generates: main CSV (certs) and optional exploded SAN CSV when --resolve is used.
 
 Usage:
-  ./cert_enum.sh [options] [targets]
-  ./cert_enum.sh -i targets.txt -o results.csv --resolve
+  ./certificate_SAN_enum.sh [options] [targets]
+  ./certificate_SAN_enum.sh -i targets.txt -o results.csv --resolve
 
 Targets:
   - single inline:  10.10.10.10:5061
@@ -41,19 +37,19 @@ Options:
 
 Examples:
   # Basic single target (cert enumeration only)
-  ./cert_enum.sh 10.10.10.10:5061 -o certs.csv
+  ./certificate_SAN_enum.sh 10.10.10.10:5061 -o certs.csv
 
   # Multiple inline targets, default port if omitted
-  ./cert_enum.sh 10.10.10.10:5061,example.com:443 -o results.csv
+  ./certificate_SAN_enum.sh 10.10.10.10:5061,example.com:443 -o results.csv
 
   # From file (comments with '#' and blank lines allowed)
-  ./cert_enum.sh -i targets.txt -o results.csv
+  ./certificate_SAN_enum.sh -i targets.txt -o results.csv
 
   # With SNI (target is IP but you want specific SNI)
-  ./cert_enum.sh 1.2.3.4:443:host.example.com --resolve
+  ./certificate_SAN_enum.sh 1.2.3.4:443:host.example.com --resolve
 
   # Full workflow: enumerate certs + resolve SANs -> exploded SAN CSV produced
-  ./cert_enum.sh -i targets.txt -o myresults.csv --resolve
+  ./certificate_SAN_enum.sh -i targets.txt -o myresults.csv --resolve
 
 Note:
   - nmap --script ssl-cert is active testing (performs TLS handshake). Only run on in-scope targets.
