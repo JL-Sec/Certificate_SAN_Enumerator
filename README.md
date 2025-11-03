@@ -7,6 +7,9 @@ A simple bash tool to enumerate all SANs associated with a certificate
 
 ---
 
+# Example Output
+![image](EXAMPLE OUTPUT.png)
+
 ## Features
 
 - Runs `nmap --script ssl-cert` per target to collect CN/SAN even when SNI unknown.  
