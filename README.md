@@ -52,7 +52,7 @@ chmod +x certificate_SAN_enum.sh
 # Single IP:port
 ./certificate_SAN_enum.sh 10.10.10.10:5061 -o certs.csv
 
-# From file (supports comments '#')
+# From file
 ./certificate_SAN_enum.sh -i targets.txt -o results.csv
 
 # With SAN DNS resolution (creates results_sans.csv)
