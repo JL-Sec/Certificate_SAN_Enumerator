@@ -31,7 +31,7 @@ A simple bash tool to enumerate all SANs associated with a certificate
 Just download or clone this repo and make the script executable:
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/JL-Sec/Certificate_SAN_Enumerator.git
 cd cert-enum
 chmod +x certificate_SAN_enum.sh
 ```
